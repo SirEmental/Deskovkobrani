@@ -1,0 +1,43 @@
+name: Zpracovat požadavek na skrytí
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  hide:
+    if: contains(github.event.issue.labels.*.name, 'hide-request')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repozitáře
+        uses: actions/checkout@v4
+
+      - name: Nastavit Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Přidat produkt na blacklist
+        env:
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: python -m scraper.handle_hide_issue
+
+      - name: Uložit blacklist
+        run: |
+          git config user.name "boardgame-deals-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add data/hidden.json
+          git diff --staged --quiet || git commit -m "Skrýt produkt z issue #${{ github.event.issue.number }} [skip ci]"
+          git push
+
+      - name: Zavřít issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue comment ${{ github.event.issue.number }} --body "✅ Skryto, příště se ti to už nezobrazí."
+          gh issue close ${{ github.event.issue.number }}
