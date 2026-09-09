@@ -39,7 +39,8 @@ HEADERS = {
         "+https://github.com/) osobni pouziti, prosim o shovivavost"
     )
 }
-REQUEST_TIMEOUT = 20
+REQUEST_TIMEOUT = 25
+RETRY_ATTEMPTS = 2
 DELAY_BETWEEN_REQUESTS_SEC = 1.5
 MAX_PAGES = 10
 ITEMS_PER_PAGE = 60  # odpovídá parametru s= v URL na xzone.cz
@@ -98,14 +99,20 @@ class XzoneAdapter(BaseAdapter):
         return list(deals.values())
 
     def _get(self, url: str) -> Optional[str]:
-        try:
-            resp = requests.get(url, headers=HEADERS, timeout=REQUEST_TIMEOUT)
-            if resp.status_code != 200:
-                return None
-            return resp.text
-        except requests.RequestException as exc:
-            logger.warning("%s: chyba požadavku na %s (%s)", self.shop_name, url, exc)
-            return None
+        last_exc = None
+        for attempt in range(1, RETRY_ATTEMPTS + 1):
+            try:
+                resp = requests.get(url, headers=HEADERS, timeout=REQUEST_TIMEOUT)
+                if resp.status_code != 200:
+                    logger.warning("%s: HTTP %s pro %s", self.shop_name, resp.status_code, url)
+                    return None
+                return resp.text
+            except requests.RequestException as exc:
+                last_exc = exc
+                if attempt < RETRY_ATTEMPTS:
+                    time.sleep(3 * attempt)
+        logger.warning("%s: chyba požadavku na %s po %d pokusech (%s)", self.shop_name, url, RETRY_ATTEMPTS, last_exc)
+        return None
 
     def _pick_item_selector(self, soup: BeautifulSoup) -> Optional[str]:
         best_selector, best_count = None, 0
