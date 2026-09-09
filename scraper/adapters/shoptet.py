@@ -46,7 +46,7 @@ HEADERS = {
 
 REQUEST_TIMEOUT = 20
 DELAY_BETWEEN_REQUESTS_SEC = 1.5
-MAX_PAGES = 6
+MAX_PAGES = 10
 
 # Kandidáti na "obálku jedné produktové dlaždice" - zkusí se popořadě
 CANDIDATE_ITEM_SELECTORS = [
@@ -58,13 +58,24 @@ CANDIDATE_ITEM_SELECTORS = [
     "div.product-list-item",
 ]
 
-# Text vzor pro "Původně: 420 Kč (–73 %)" / "Was: €45,33 (–10 %)"
-ORIGINAL_PRICE_RE = re.compile(
-    r"(?:Původně|Was)\s*:?\s*([\d\s.,]+)\s*(Kč|€|EUR)\s*\(\s*[-–]\s*(\d+)\s*%\s*\)",
+# Sleva se na Shoptetu píše v několika reálně pozorovaných variantách:
+#   "Původně: 420 Kč (–73 %)"     čeština, s popiskem, % v závorce
+#   "Sleva · 2 515 Kč –49 %"      čeština, bez popisku, % bez závorky
+#   "Was: €53,58 (–86 %)"         angličtina, měna PŘED částkou (ne za ní!)
+# Proto hledáme částku+měnu v OBOU pořadích a % nemusí být v závorce -
+# jen samotné "číslo (Kč|€|EUR) [-–]číslo%" už stačí jako důkaz slevy.
+CURRENCY = r"Kč|€|EUR"
+AMOUNT = r"[\d][\d\s.,]*"
+DISCOUNT_RE = re.compile(
+    rf"(?:(?P<cur1>{CURRENCY})\s*(?P<amt1>{AMOUNT})|(?P<amt2>{AMOUNT})\s*(?P<cur2>{CURRENCY}))"
+    rf"\s*\(?\s*[-–]\s*(?P<pct>\d+)\s*%\s*\)?",
     re.IGNORECASE,
 )
-# Libovolná cena v textu, použije se pro dohledání "aktuální" (poslední) ceny
-ANY_PRICE_RE = re.compile(r"([\d][\d\s]*[\d]|\d)\s*(Kč|€|EUR)")
+# Libovolná zmínka o ceně (bez vazby na slevu) - pro dohledání aktuální ceny
+ANY_PRICE_RE = re.compile(
+    rf"(?:(?P<cur1>{CURRENCY})\s*(?P<amt1>{AMOUNT})|(?P<amt2>{AMOUNT})\s*(?P<cur2>{CURRENCY}))",
+    re.IGNORECASE,
+)
 
 OUT_OF_STOCK_WORDS = ("vyprodáno", "není skladem", "out of stock", "sold out")
 
@@ -150,19 +161,25 @@ class ShoptetAdapter(BaseAdapter):
         results = []
         for box in soup.select(selector):
             text = box.get_text(" ", strip=True)
-            match = ORIGINAL_PRICE_RE.search(text)
+            match = DISCOUNT_RE.search(text)
             if not match:
                 continue  # tahle položka není zlevněná
 
-            price_original = _parse_number(match.group(1))
-            currency = match.group(2).replace("EUR", "€")
-            discount_pct = int(match.group(3))
+            amount_str = match.group("amt1") or match.group("amt2")
+            currency = (match.group("cur1") or match.group("cur2")).replace("EUR", "€")
+            price_original = _parse_number(amount_str)
+            discount_pct = int(match.group("pct"))
 
-            # aktuální cena = poslední cenová částka v textu dlaždice
-            all_prices = ANY_PRICE_RE.findall(text)
-            if not all_prices:
-                continue
-            price_current = _parse_number(all_prices[-1][0])
+            # Aktuální cena = poslední ZBÝVAJÍCÍ cenová zmínka v textu
+            # (vyřízneme část textu, kde jsme právě našli původní cenu,
+            # ať si ji regex nesplete sám se sebou).
+            remaining_text = text[: match.start()] + text[match.end():]
+            other_prices = list(ANY_PRICE_RE.finditer(remaining_text))
+            if other_prices:
+                last = other_prices[-1]
+                price_current = _parse_number(last.group("amt1") or last.group("amt2"))
+            else:
+                price_current = round(price_original * (1 - discount_pct / 100), 2)
 
             link = box.select_one("a[href]")
             if not link or not link.get("href"):
