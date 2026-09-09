@@ -30,7 +30,7 @@ jobs:
           EMAIL_ADDRESS: ${{ secrets.EMAIL_ADDRESS }}
           EMAIL_APP_PASSWORD: ${{ secrets.EMAIL_APP_PASSWORD }}
           RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
-          MIN_DISCOUNT_PCT: ${{ vars.MIN_DISCOUNT_PCT }}
+          MIN_DISCOUNT_PCT: ${{ vars.MIN_DISCOUNT_PCT || '30' }}
         run: python -m scraper.main
 
       - name: Uložit změny (galerie + historie) zpět do repozitáře
