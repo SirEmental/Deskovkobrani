@@ -77,7 +77,48 @@ ANY_PRICE_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Slova/štítky, které se objevují jako samostatné odkazy v dlaždici,
+# ale NEJSOU název produktu (žánrové štítky, tlačítka, stavy skladu...)
+GENERIC_LINK_WORDS = {
+    "koupit", "detail", "skladem", "vyprodáno", "doprava zdarma", "sleva",
+    "akce", "novinka", "tip", "doporučujeme", "top", "buy", "in stock",
+    "out of stock", "new", "sale", "action", "add to cart", "do košíku",
+    "kdy se to stalo",  # POZOR: tohle je náhodou i skutečný název hry,
+    # necháváme ho tu záměrně VYPUŠTĚNÝ z blacklistu - viz komentář níž
+}
+GENERIC_LINK_WORDS.discard("kdy se to stalo")
+
 OUT_OF_STOCK_WORDS = ("vyprodáno", "není skladem", "out of stock", "sold out")
+
+
+def _looks_like_product_name(text: str) -> bool:
+    """Heuristika: je tenhle text odkazu skutečný název produktu?"""
+    stripped = text.strip()
+    if len(stripped) < 2 or stripped.lower() in GENERIC_LINK_WORDS:
+        return False
+    # samotné číslo, cena nebo procento (např. jen "–84 %" nebo "21 €")
+    if re.fullmatch(r"[-–]?\s*\d[\d\s.,]*\s*(%|Kč|€|EUR)?", stripped, re.IGNORECASE):
+        return False
+    if sum(ch.isalpha() for ch in stripped) < 2:
+        return False
+    return True
+
+
+def _pick_name_link(box) -> tuple[Optional[str], Optional[str]]:
+    """
+    V dlaždici bývá víc odkazů (žánrový štítek, obrázek, název, tlačítko).
+    Vybereme ten s NEJDELŠÍM smysluplným textem - název produktu bývá
+    vždy delší než krátké štítky typu "Akce" nebo "Skladem".
+    """
+    candidates = []
+    for a in box.select("a[href]"):
+        text = a.get_text(" ", strip=True)
+        if _looks_like_product_name(text):
+            candidates.append((text, a["href"]))
+    if not candidates:
+        return None, None
+    candidates.sort(key=lambda pair: len(pair[0]), reverse=True)
+    return candidates[0]
 
 
 def _parse_number(raw: str) -> float:
@@ -181,16 +222,12 @@ class ShoptetAdapter(BaseAdapter):
             else:
                 price_current = round(price_original * (1 - discount_pct / 100), 2)
 
-            link = box.select_one("a[href]")
-            if not link or not link.get("href"):
+            name, href = _pick_name_link(box)
+            if not href:
                 continue
-            href = link["href"]
             if href.startswith("/"):
                 href = self.config.base_url.rstrip("/") + href
-
-            name = link.get_text(strip=True) or (link.get("title") or "").strip()
             if not name:
-                # zkus alt text obrázku
                 img_tag = box.select_one("img[alt]")
                 name = img_tag["alt"].strip() if img_tag else "Neznámý produkt"
 

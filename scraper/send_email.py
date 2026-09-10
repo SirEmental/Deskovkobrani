@@ -21,7 +21,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
 from .adapters import Deal
-from .render_html import PLACEHOLDER_IMAGE, build_hide_issue_url
+from .render_html import PLACEHOLDER_IMAGE, build_favorite_issue_url, build_hide_issue_url
 
 logger = logging.getLogger("boardgame_deals")
 
@@ -51,11 +51,13 @@ ITEM_TEMPLATE = """
     </td>
     <td style="padding:12px; vertical-align:top;">
       <div style="font-size:11px; color:#999; text-transform:uppercase;">{shop}</div>
-      <a href="{url}" style="font-size:15px; font-weight:600; color:#222; text-decoration:none;">{name}</a><br>
+      <a href="{url}" style="font-size:15px; font-weight:600; color:#222; text-decoration:none;">{fav_star}{name}</a><br>
       <span style="color:#ff6b4a; font-weight:700;">{price_current} {currency}</span>
       <span style="color:#999; text-decoration:line-through; font-size:13px;">{price_original} {currency}</span>
       <span style="color:#fff; background:#ff6b4a; font-size:12px; font-weight:700; padding:1px 6px; border-radius:6px;">-{discount}%</span>
       <br>
+      <a href="{fav_url}" style="font-size:12px; color:#c9a300;">{fav_label}</a>
+      &nbsp;·&nbsp;
       <a href="{hide_url}" style="font-size:12px; color:#999;">🚫 Skrýt natrvalo</a>
     </td>
   </tr>
@@ -67,19 +69,29 @@ def _fmt_price(value: float) -> str:
     return f"{value:,.0f}".replace(",", " ")
 
 
-def build_email_html(new_deals: list[Deal], github_repo: str, gallery_url: str, min_discount_pct: int) -> str:
+def build_email_html(
+    new_deals: list[Deal], favorites: dict, github_repo: str, gallery_url: str, min_discount_pct: int
+) -> str:
+    def sort_key(d: Deal):
+        is_fav = d.product_id in favorites
+        return (not is_fav, -d.discount_pct)
+
     items_html = []
-    for deal in sorted(new_deals, key=lambda d: d.discount_pct, reverse=True):
+    for deal in sorted(new_deals, key=sort_key):
+        is_fav = deal.product_id in favorites
         items_html.append(
             ITEM_TEMPLATE.format(
                 url=html.escape(deal.url),
                 image=html.escape(deal.image_url or PLACEHOLDER_IMAGE),
                 shop=html.escape(deal.shop),
+                fav_star="★ " if is_fav else "",
                 name=html.escape(deal.name),
                 price_current=_fmt_price(deal.price_current),
                 price_original=_fmt_price(deal.price_original),
                 currency=html.escape(deal.currency),
                 discount=deal.discount_pct,
+                fav_label="★ Odebrat z oblíbených" if is_fav else "☆ Přidat mezi oblíbené",
+                fav_url=build_favorite_issue_url(github_repo, deal.product_id, deal.name),
                 hide_url=build_hide_issue_url(github_repo, deal.product_id, deal.name),
             )
         )

@@ -48,12 +48,14 @@ def main() -> None:
     visible_deals = [d for d in all_deals if d.product_id not in hidden]
     logger.info("Po odečtení skrytých produktů zbývá %d.", len(visible_deals))
 
+    favorites = storage.load_favorites()
     is_new_map = storage.update_seen({d.product_id for d in visible_deals})
     new_deals = [d for d in visible_deals if is_new_map.get(d.product_id)]
 
     render_gallery(
         deals=visible_deals,
         is_new_map=is_new_map,
+        favorites=favorites,
         github_repo=GITHUB_REPO,
         min_discount_pct=MIN_DISCOUNT,
         output_path=OUTPUT_HTML,
@@ -62,7 +64,7 @@ def main() -> None:
 
     if new_deals:
         logger.info("Nalezeno %d nových položek, posílám e-mail...", len(new_deals))
-        email_html = build_email_html(new_deals, GITHUB_REPO, GALLERY_URL, MIN_DISCOUNT)
+        email_html = build_email_html(new_deals, favorites, GITHUB_REPO, GALLERY_URL, MIN_DISCOUNT)
         send_email(subject=f"🎲 {len(new_deals)} nových slev na deskovky", html_body=email_html)
     else:
         logger.info("Žádné nové položky - e-mail se dnes neposílá.")

@@ -27,6 +27,11 @@ SHOPTET_SHOPS = [
     ShoptetShopConfig(
         shop_name="TLAMA games",
         base_url="https://www.tlamagames.com",
+        # POZOR: česká URL (/trvale-zlevneno/) i endpoint na přepnutí
+        # měny (/action/Currency/...) jsou v robots.txt obchodu
+        # zakázané pro roboty - respektujeme to a zůstáváme na
+        # povolené anglické verzi. Měna (EUR) se přepočítává na Kč
+        # v kódu, viz normalize_to_czk() v base.py.
         sale_paths=["/en/permanently-discounted/"],
     ),
     # HRAS.cz - vzhled stránky (Open filter/Show filter, "X items to
@@ -37,6 +42,14 @@ SHOPTET_SHOPS = [
         shop_name="HRAS",
         base_url="https://www.hras.cz",
         sale_paths=["/spolecenske-hry/"],
+    ),
+    # Black Lotus - potvrzeno "Vytvořil Shoptet Premium" v patičce.
+    # Sekce "VÝPRODEJ A BAZAR Deskových her" (jen deskovky, ne
+    # Magic/Pokémon karty, které tenhle obchod taky prodává).
+    ShoptetShopConfig(
+        shop_name="Black Lotus",
+        base_url="https://www.blacklotus.cz",
+        sale_paths=["/vyprodej/"],
     ),
 ]
 
@@ -58,25 +71,37 @@ XZONE_SHOPS = [
 ]
 
 # ---------------------------------------------------------------------------
-# TODO - obchody, které čekají na doladění (znám URL, ne přesnou strukturu)
+# ZJIŠTĚNO, ŽE NEJSOU NA SHOPTETU - běží na jiných platformách, takže náš
+# ShoptetAdapter/XzoneAdapter na ně nesedne. Pro každou by šlo napsat vlastní
+# malý adaptér (stejným způsobem jako xzone.py) - dej vědět, kterou chceš
+# jako další, a přidám ji.
 # ---------------------------------------------------------------------------
-# Až uvidíme první ostrý běh, přidáme je stejným způsobem jako výše.
-# Pro připomenutí, co už o nich víme:
+#   Svět her              svet-her.cz            platforma Simplia
+#                         (sleva: https://www.svet-her.cz/Vyprodej)
+#   Svět deskových her    svet-deskovych-her.cz  vlastní/custom systém
+#                         (sleva: /produkty/slevy, sleva rovnou v %)
+#   Ostrov her            ostrov-her.cz          platforma WEXBO
+#                         (sekce "Akční nabídka", % slevy nejsou vždy vidět
+#                          přímo v seznamu - možná bude nutné otevřít detail)
+#   Najáda                najada.games           vlastní Nuxt.js aplikace
+#                         (sleva: /discounted, spíš TCG/Magic než deskovky)
+#   Hry do ruky           hrydoruky.cz           nopCommerce
+#                         (cena "X Kč s DPH Y Kč s DPH" pár = sleva)
+#   MindOK                mindok.cz              WordPress/WooCommerce
+#                         (sleva: /nase-hry/akce-yes/)
+#   Albi                  albi.cz                vlastní systém (PragueBest)
+#                         (sleva: /akcni-ceny/, % je vidět jen u části zboží)
 #
-#   Svět deskových her   https://www.svet-deskovych-her.cz/produkty/slevy
-#   Domov her            https://www.domovher.cz/prices-drop
-#   Svět her             https://www.svet-her.cz/Vyprodej
-#   Black Lotus          https://www.blacklotus.cz/vyprodej/
-#   Ostrov her           https://www.ostrov-her.cz  (nekontrolováno)
-#   Najáda               https://www.najada.games  (nekontrolováno)
-#   Hry do ruky          https://www.hrydoruky.cz  (nekontrolováno)
-#   Myší doupě           https://www.mysidoupe.cz  (nekontrolováno)
-#   Ráj deskovek         https://www.rajdeskovek.cz  (nekontrolováno)
-#   Fox in the Box       https://www.foxinthebox.cz  (nekontrolováno)
-#   MindOK               https://www.mindok.cz  (nekontrolováno)
-#   REXhry               https://www.rexhry.cz  (nekontrolováno)
-#   Albi                 https://www.albi.cz  (nekontrolováno)
-#   BoardBros            https://www.boardbros.cz  (nekontrolováno)
+# NEZAŘAZENO (blokují automatizovaný přístup, respektujeme to):
+#   Domov her             domovher.cz            robots.txt zakazuje botům
+#                         přístup na celý web - proto ho NESCRAPUJEME.
+#
+# JEŠTĚ NEKONTROLOVÁNO:
+#   Myší doupě     mysidoupe.cz
+#   Ráj deskovek   rajdeskovek.cz
+#   Fox in the Box foxinthebox.cz
+#   REXhry         rexhry.cz
+#   BoardBros      boardbros.cz
 
 
 def get_all_adapters():

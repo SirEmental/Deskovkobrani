@@ -76,13 +76,24 @@ v repozitáři aktualizovat.
 Pokud něco selže, otevři si detail běhu a podívej se do logu - u
 každého obchodu se loguje, kolik slev našel (nebo proč selhal).
 
-## Jak funguje "Skrýt"
+## Jak funguje "Skrýt" a "Oblíbené"
 
-U každé položky v galerii/e-mailu je odkaz **🚫 Skrýt**. Otevře v
-prohlížeči rovnou předvyplněné nové GitHub issue - stačí kliknout
-**Submit new issue** (jsi přihlášený do svého repozitáře, žádné další
-heslo netřeba). Do minuty ho zpracuje druhý workflow a produkt se už
-příště nezobrazí. Issue se pak samo zavře s potvrzením.
+U každé položky v galerii/e-mailu jsou dva odkazy:
+
+- **🚫 Skrýt** – založí GitHub issue, produkt se příště už nezobrazí.
+- **☆ Přidat mezi oblíbené / ★ Odebrat z oblíbených** – založí GitHub
+  issue, který přepne, jestli je produkt "oblíbený". Oblíbené položky
+  se v galerii i e-mailu vždy řadí úplně nahoru (mají žlutý rámeček),
+  dokud oblíbenost sám nezrušíš stejným tlačítkem.
+
+Oba odkazy fungují stejně - otevřou v prohlížeči rovnou předvyplněné
+nové GitHub issue, stačí kliknout **Submit new issue** (jsi přihlášený
+do svého repozitáře, žádné další heslo netřeba). Do minuty to zpracuje
+druhý workflow. Issue se pak samo zavře s potvrzením.
+
+**Řazení v galerii/e-mailu:** 1) oblíbené položky, 2) mezi ostatními
+nejdřív ty NOVÉ (objevily se dnes poprvé), 3) uvnitř každé skupiny
+podle výše slevy.
 
 ## Přidání dalšího obchodu
 
@@ -97,9 +108,11 @@ ShoptetShopConfig(
 ),
 ```
 
-V `config.py` je dole seznam obchodů, které zatím čekají na doladění
-(znám jejich adresu, ale ne přesně, jak zobrazují slevy) - klidně mi
-pošli odkaz na jejich stránku se slevami a doplním je.
+V `config.py` je dole seznam obchodů na jiných platformách (Simplia,
+WEXBO, nopCommerce, WooCommerce, vlastní systémy...) - pro každý by
+šlo napsat malý adaptér stejným způsobem jako pro Xzone. Napiš mi,
+který chceš jako další, a přidám ho. Jeden obchod (Domov her) má v
+`robots.txt` výslovný zákaz pro roboty, takže ho záměrně nescrapujeme.
 
 ## Omezení, o kterých bys měl vědět
 

@@ -4,8 +4,17 @@ slevami. Tenhle soubor GitHub Pages servíruje jako běžnou webovou
 stránku; na iPhonu si ji přes Safari -> "Přidat na plochu" uložíš
 jako ikonku, která se otevírá na celou obrazovku jako appka.
 
-U každé položky je odkaz "Skrýt", který založí GitHub issue - ten
-zpracuje workflow handle_hide.yml a produkt příště už nenabídne.
+U každé položky jsou dva odkazy:
+  - "Skrýt"     -> založí GitHub issue, produkt se příště už nenabídne.
+  - "Oblíbit"   -> založí GitHub issue, produkt se bude natrvalo řadit
+                   mezi prvními (dokud oblíbenost znovu nezrušíš).
+
+Oboje zpracuje workflow handle_actions.yml.
+
+Řazení (odshora dolů):
+  1) oblíbené položky,
+  2) mezi neoblíbenými nejdřív ty NOVÉ (objevily se dnes poprvé),
+  3) uvnitř každé skupiny podle výše slevy.
 """
 
 from __future__ import annotations
@@ -34,6 +43,7 @@ PAGE_TEMPLATE = """<!DOCTYPE html>
     --muted: #9aa1af;
     --accent: #ff6b4a;
     --new: #4ade80;
+    --fav: #facc15;
   }}
   * {{ box-sizing: border-box; }}
   body {{
@@ -68,6 +78,7 @@ PAGE_TEMPLATE = """<!DOCTYPE html>
     flex-direction: column;
     position: relative;
   }}
+  .card.is-favorite {{ border-color: var(--fav); box-shadow: 0 0 0 1px var(--fav); }}
   .card img {{
     width: 100%;
     aspect-ratio: 1 / 1;
@@ -85,21 +96,27 @@ PAGE_TEMPLATE = """<!DOCTYPE html>
     padding: 3px 8px;
     border-radius: 999px;
   }}
-  .badge.new {{
-    left: auto;
+  .top-right-badges {{
+    position: absolute;
+    top: 8px;
     right: 8px;
-    background: var(--new);
-    color: #06280f;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
   }}
+  .badge.new {{ background: var(--new); color: #06280f; }}
+  .badge.fav {{ background: var(--fav); color: #3a2c00; }}
   .card-body {{ padding: 10px 12px 12px; flex: 1; display: flex; flex-direction: column; gap: 6px; }}
   .shop {{ font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }}
   .name {{ font-size: 0.92rem; font-weight: 600; line-height: 1.25; color: var(--text); text-decoration: none; }}
   .prices {{ margin-top: auto; display: flex; align-items: baseline; gap: 6px; }}
   .price-now {{ font-size: 1.05rem; font-weight: 700; color: var(--accent); }}
   .price-old {{ font-size: 0.8rem; color: var(--muted); text-decoration: line-through; }}
-  .actions {{ display: flex; gap: 8px; margin-top: 4px; }}
+  .actions {{ display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }}
   .actions a {{ font-size: 0.72rem; color: var(--muted); text-decoration: none; border: 1px solid var(--card-border); border-radius: 8px; padding: 4px 8px; }}
-  .actions a.hide-link:active {{ background: var(--card-border); }}
+  .actions a.hide-link:active, .actions a.fav-link:active {{ background: var(--card-border); }}
+  .actions a.fav-link.is-favorite {{ color: var(--fav); border-color: var(--fav); }}
   footer {{ text-align: center; color: var(--muted); font-size: 0.75rem; padding: 24px 16px; }}
   .empty {{ text-align: center; color: var(--muted); padding: 60px 16px; }}
 </style>
@@ -116,9 +133,12 @@ PAGE_TEMPLATE = """<!DOCTYPE html>
 """
 
 CARD_TEMPLATE = """
-<div class="card">
-  {new_badge}
+<div class="card{card_favorite_class}">
   <span class="badge">-{discount}%</span>
+  <div class="top-right-badges">
+    {new_badge}
+    {fav_badge}
+  </div>
   <a href="{url}" target="_blank" rel="noopener">
     <img src="{image}" alt="{name_attr}" loading="lazy" onerror="this.style.display='none'">
   </a>
@@ -131,6 +151,7 @@ CARD_TEMPLATE = """
     </div>
     <div class="actions">
       <a href="{url}" target="_blank" rel="noopener">Koupit ↗</a>
+      <a class="fav-link{fav_link_class}" href="{fav_url}" target="_blank" rel="noopener">{fav_label}</a>
       <a class="hide-link" href="{hide_url}" target="_blank" rel="noopener">🚫 Skrýt</a>
     </div>
   </div>
@@ -154,28 +175,47 @@ def build_hide_issue_url(github_repo: str, product_id: str, name: str) -> str:
     body = quote(f"Skrýt natrvalo: {name}\n\nID produktu: {product_id}")
     return (
         f"https://github.com/{github_repo}/issues/new"
-        f"?title={title}&body={body}&labels=hide-request"
+        f"?title={title}&body={body}"
+    )
+
+
+def build_favorite_issue_url(github_repo: str, product_id: str, name: str) -> str:
+    """Stejný princip jako u skrytí, ale přepíná stav oblíbenosti."""
+    title = quote(f"favorite: {product_id}")
+    body = quote(f"Přepnout oblíbenost: {name}\n\nID produktu: {product_id}")
+    return (
+        f"https://github.com/{github_repo}/issues/new"
+        f"?title={title}&body={body}"
     )
 
 
 def render_gallery(
     deals: list[Deal],
     is_new_map: dict[str, bool],
+    favorites: dict,
     github_repo: str,
     min_discount_pct: int,
     output_path: str,
 ) -> None:
-    deals_sorted = sorted(deals, key=lambda d: d.discount_pct, reverse=True)
+    def sort_key(d: Deal):
+        is_fav = d.product_id in favorites
+        is_new = is_new_map.get(d.product_id, False)
+        return (not is_fav, not is_new, -d.discount_pct)
+
+    deals_sorted = sorted(deals, key=sort_key)
 
     if not deals_sorted:
         body = '<div class="empty">Aktuálně žádné velké slevy. Zkus to zítra 🙂</div>'
     else:
         cards = []
         for deal in deals_sorted:
+            is_fav = deal.product_id in favorites
             new_badge = '<span class="badge new">NOVÉ</span>' if is_new_map.get(deal.product_id) else ""
+            fav_badge = '<span class="badge fav">★ OBLÍBENÉ</span>' if is_fav else ""
+            fav_label = "★ Odebrat z oblíbených" if is_fav else "☆ Přidat mezi oblíbené"
             cards.append(
                 CARD_TEMPLATE.format(
-                    new_badge=new_badge,
+                    card_favorite_class=" is-favorite" if is_fav else "",
                     discount=deal.discount_pct,
                     url=html.escape(deal.url),
                     image=html.escape(deal.image_url or PLACEHOLDER_IMAGE),
@@ -185,6 +225,11 @@ def render_gallery(
                     price_current=_fmt_price(deal.price_current),
                     price_original=_fmt_price(deal.price_original),
                     currency=html.escape(deal.currency),
+                    new_badge=new_badge,
+                    fav_badge=fav_badge,
+                    fav_link_class=" is-favorite" if is_fav else "",
+                    fav_label=fav_label,
+                    fav_url=build_favorite_issue_url(github_repo, deal.product_id, deal.name),
                     hide_url=build_hide_issue_url(github_repo, deal.product_id, deal.name),
                 )
             )

@@ -3,8 +3,9 @@ Trvalý stav mezi jednotlivými denními běhy se ukládá jako JSON soubory
 přímo v git repozitáři (data/hidden.json, data/seen.json). GitHub Action
 je po každém běhu commitne zpět - žádná externí databáze není potřeba.
 
-hidden.json:  {"<product_id>": {"name": ..., "hidden_at": "2026-09-08"}}
-seen.json:    {"<product_id>": {"first_seen": "2026-09-01", "last_seen": "2026-09-08"}}
+hidden.json:    {"<product_id>": {"name": ..., "hidden_at": "2026-09-08"}}
+seen.json:      {"<product_id>": {"first_seen": "2026-09-01", "last_seen": "2026-09-08"}}
+favorites.json: {"<product_id>": {"name": ..., "favorited_at": "2026-09-08"}}
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ from typing import Dict
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
 HIDDEN_PATH = os.path.join(DATA_DIR, "hidden.json")
 SEEN_PATH = os.path.join(DATA_DIR, "seen.json")
+FAVORITES_PATH = os.path.join(DATA_DIR, "favorites.json")
 
 
 def _load(path: str) -> dict:
@@ -48,6 +50,29 @@ def hide_product(product_id: str, name: str = "") -> None:
     hidden = load_hidden()
     hidden[product_id] = {"name": name, "hidden_at": date.today().isoformat()}
     save_hidden(hidden)
+
+
+def load_favorites() -> Dict[str, dict]:
+    return _load(FAVORITES_PATH)
+
+
+def save_favorites(data: Dict[str, dict]) -> None:
+    _save(FAVORITES_PATH, data)
+
+
+def toggle_favorite(product_id: str, name: str = "") -> bool:
+    """
+    Přidá/odebere produkt z oblíbených (jeden odkaz = přepínač).
+    Vrací True, pokud je produkt PO akci oblíbený, jinak False.
+    """
+    favorites = load_favorites()
+    if product_id in favorites:
+        del favorites[product_id]
+        save_favorites(favorites)
+        return False
+    favorites[product_id] = {"name": name, "favorited_at": date.today().isoformat()}
+    save_favorites(favorites)
+    return True
 
 
 def load_seen() -> Dict[str, dict]:
