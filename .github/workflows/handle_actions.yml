@@ -1,0 +1,49 @@
+name: Zpracovat požadavek (skrýt / oblíbené)
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  handle:
+    # POZOR: nekontrolujeme štítek (label), protože GitHub štítek z
+    # odkazu "...&labels=hide-request" přidá JEN pokud už v repozitáři
+    # existuje - u nového repa neexistuje, takže by se job pořád
+    # přeskakoval. Název issue si vytváříme sami, je tedy spolehlivější.
+    if: >
+      startsWith(github.event.issue.title, 'hide:') ||
+      startsWith(github.event.issue.title, 'favorite:')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repozitáře
+        uses: actions/checkout@v5
+
+      - name: Nastavit Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Zpracovat akci
+        env:
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: python -m scraper.handle_issue_action
+
+      - name: Uložit změnu
+        run: |
+          git config user.name "boardgame-deals-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add data/hidden.json data/favorites.json
+          git diff --staged --quiet || git commit -m "Aktualizace z issue #${{ github.event.issue.number }} [skip ci]"
+          git push
+
+      - name: Zavřít issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue comment ${{ github.event.issue.number }} --body "✅ Hotovo, projeví se to při příštím denním běhu."
+          gh issue close ${{ github.event.issue.number }}
