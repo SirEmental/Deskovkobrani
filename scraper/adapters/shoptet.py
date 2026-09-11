@@ -24,6 +24,7 @@ shop choval jinak, stačí doladit CANDIDATE_ITEM_SELECTORS níž.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import time
@@ -92,33 +93,134 @@ OUT_OF_STOCK_WORDS = ("vyprodáno", "není skladem", "out of stock", "sold out")
 
 
 def _looks_like_product_name(text: str) -> bool:
-    """Heuristika: je tenhle text odkazu skutečný název produktu?"""
+    """Heuristika (záložní, použije se jen když nejsou k dispozici
+    strukturovaná data): je tenhle text odkazu skutečný název produktu?"""
     stripped = text.strip()
     if len(stripped) < 2 or stripped.lower() in GENERIC_LINK_WORDS:
         return False
-    # samotné číslo, cena nebo procento (např. jen "–84 %" nebo "21 €")
-    if re.fullmatch(r"[-–]?\s*\d[\d\s.,]*\s*(%|Kč|€|EUR)?", stripped, re.IGNORECASE):
+    # POZOR: kdyby text obsahoval KDEKOLIV cenu/měnu/procento, jde skoro
+    # jistě o odkaz obalující obrázek + přilepený štítek slevy (typicky
+    # "<alt textu obrázku> Action €47,39 –82 %"), ne o čistý název -
+    # a to i kdyby byl tenhle text nakonec delší než skutečný název hry.
+    if ANY_PRICE_RE.search(stripped) or re.search(r"[-–]\s*\d+\s*%", stripped):
         return False
     if sum(ch.isalpha() for ch in stripped) < 2:
         return False
     return True
 
 
-def _pick_name_link(box) -> tuple[Optional[str], Optional[str]]:
+def _pick_product_href(box) -> Optional[str]:
     """
-    V dlaždici bývá víc odkazů (žánrový štítek, obrázek, název, tlačítko).
-    Vybereme ten s NEJDELŠÍM smysluplným textem - název produktu bývá
-    vždy delší než krátké štítky typu "Akce" nebo "Skladem".
+    V dlaždici bývá víc odkazů (obrázek, název, tlačítko Koupit...),
+    ale skoro vždy míří na STEJNOU URL produktu - jen ojedinělý žánrový
+    štítek může mířit jinam (např. na stránku žánru). Proto bereme
+    NEJČASTĚJŠÍ href v dlaždici, ne prostě první, na který narazíme.
     """
-    candidates = []
-    for a in box.select("a[href]"):
-        text = a.get_text(" ", strip=True)
-        if _looks_like_product_name(text):
-            candidates.append((text, a["href"]))
-    if not candidates:
-        return None, None
-    candidates.sort(key=lambda pair: len(pair[0]), reverse=True)
-    return candidates[0]
+    hrefs = [a["href"] for a in box.select("a[href]") if a.get("href")]
+    if not hrefs:
+        return None
+    counts: dict[str, int] = {}
+    for h in hrefs:
+        counts[h] = counts.get(h, 0) + 1
+    return max(counts.items(), key=lambda pair: pair[1])[0]
+
+
+def _pick_name_from_links(box) -> Optional[str]:
+    """
+    Záložní heuristika pro jméno - použije se JEN když stránka nemá
+    strukturovaná data (microdata/JSON-LD). Z odkazů v dlaždici vybere
+    ten s nejdelším SMYSLUPLNÝM textem (bez ceny/procenta/obecných slov).
+    """
+    candidates = [
+        text
+        for a in box.select("a[href]")
+        if _looks_like_product_name(text := a.get_text(" ", strip=True))
+    ]
+    return max(candidates, key=len) if candidates else None
+
+
+def _extract_datalayer_names_ordered(soup: BeautifulSoup) -> list[str]:
+    """
+    Alternativa k JSON-LD pro případ, že stránka nemá schema.org data,
+    ale MÁ obsáhlou Google Analytics/GTM dataLayer (běžné u Shoptetu -
+    typicky "ecommerce.items" při sledování 'zobrazení seznamu
+    produktů'). Tohle NENÍ platný JSON (je to JS kód), takže to
+    neparsujeme jako JSON.
+
+    POZOR na past: klíč "name" se v obsáhlé dataLayer objevuje i mimo
+    produkty (název stránky, měna, jazyk...) - kdybychom brali "name"
+    jen podle toho, že je NĚKDE POBLÍŽ i "id"/"price" (širší okno
+    textu), ve skutečnosti bychom u krátkých/nahuštěných úseků chytali
+    i úplně nesouvisející věci. Proto vyžadujeme, aby "id" a "name"
+    byly PŘÍMO SOUSEDÍCÍ klíče (oddělené jen čárkou) ve stejném malém
+    objektu - to už spolehlivě značí jeden produktový záznam.
+
+    Vrací seznam jmen V POŘADÍ, v jakém se objevují. Volající kód si
+    sám ověří, že se počet přesně shoduje s počtem dlaždic na stránce,
+    než pozice použije - jinak by hrozilo špatné přiřazení.
+    """
+    id_then_name = re.compile(r'"(?:item_)?id"\s*:\s*"?[\w\-./]+"?\s*,\s*"(?:item_)?name"\s*:\s*"([^"]{2,120})"')
+    name_then_id = re.compile(r'"(?:item_)?name"\s*:\s*"([^"]{2,120})"\s*,\s*"(?:item_)?id"\s*:\s*"?[\w\-./]+"?')
+
+    pairs: list[tuple[int, str]] = []  # (pozice v textu, jméno) - napříč všemi scripty
+    for script in soup.find_all("script"):
+        text = script.string or script.get_text() or ""
+        if "dataLayer" not in text and "ecommerce" not in text:
+            continue
+        for pattern in (id_then_name, name_then_id):
+            for m in pattern.finditer(text):
+                pairs.append((m.start(), m.group(1)))
+
+    pairs.sort(key=lambda p: p[0])
+    return [name for _, name in pairs]
+
+
+def _extract_json_ld_names(soup: BeautifulSoup) -> dict[str, str]:
+    """
+    E-shopy kvůli SEO často vkládají do stránky strukturovaná data
+    (schema.org JSON-LD) se skutečným, čistým názvem produktu - na
+    rozdíl od viditelného textu tahle data nejsou "poskládaná" z
+    obrázku+štítků, takže je to spolehlivější zdroj, pokud existuje.
+    Vrací mapu {url_produktu: nazev}; pokud nic nenajde, prázdný slovník
+    (nic se nerozbije, jen se použije záložní heuristika z textu).
+    """
+    url_to_name: dict[str, str] = {}
+
+    def _walk(entry) -> None:
+        if isinstance(entry, list):
+            for item in entry:
+                _walk(item)
+            return
+        if not isinstance(entry, dict):
+            return
+        entry_type = entry.get("@type", "")
+        if entry_type == "Product" and entry.get("name") and entry.get("url"):
+            url_to_name[entry["url"]] = entry["name"]
+        if entry_type == "ItemList":
+            for element in entry.get("itemListElement", []):
+                if isinstance(element, dict):
+                    _walk(element.get("item", element))
+        # některé weby vnořují Product/Offer do "@graph"
+        if "@graph" in entry:
+            _walk(entry["@graph"])
+
+    for script in soup.find_all("script", type="application/ld+json"):
+        try:
+            _walk(json.loads(script.string or ""))
+        except (TypeError, ValueError):
+            continue  # nevalidní/neočekávaný JSON - nevadí, jen přeskočíme
+
+    return url_to_name
+
+
+def _name_from_microdata(box) -> Optional[str]:
+    """Schema.org microdata přímo v HTML (itemprop="name") - další běžný
+    SEO vzor, opět spolehlivější než skládání z viditelného textu."""
+    el = box.select_one('[itemprop="name"]')
+    if not el:
+        return None
+    value = el.get("content") or el.get_text(strip=True)
+    return value.strip() if value else None
 
 
 def _parse_number(raw: str) -> float:
@@ -199,8 +301,18 @@ class ShoptetAdapter(BaseAdapter):
             logger.info("%s: na %s se nepodařilo najít produktové dlaždice", self.shop_name, page_url)
             return []
 
+        # Zkusíme najít jména ze strukturovaných dat - nejdřív JSON-LD
+        # (přesné, podle URL), pak dataLayer (přesné jen pozičně, proto
+        # jen když počet přesně sedí s počtem dlaždic na stránce).
+        # Pokud stránka nic z toho nemá, použije se záložní heuristika
+        # pro každou položku zvlášť - nic se nerozbije.
+        all_boxes = soup.select(selector)
+        json_ld_names = _extract_json_ld_names(soup)
+        datalayer_names = _extract_datalayer_names_ordered(soup)
+        positional_names = datalayer_names if len(datalayer_names) == len(all_boxes) else []
+
         results = []
-        for box in soup.select(selector):
+        for idx, box in enumerate(all_boxes):
             text = box.get_text(" ", strip=True)
             match = DISCOUNT_RE.search(text)
             if not match:
@@ -222,14 +334,27 @@ class ShoptetAdapter(BaseAdapter):
             else:
                 price_current = round(price_original * (1 - discount_pct / 100), 2)
 
-            name, href = _pick_name_link(box)
+            href = _pick_product_href(box)
             if not href:
                 continue
             if href.startswith("/"):
                 href = self.config.base_url.rstrip("/") + href
+
+            # Pořadí důvěryhodnosti zdroje jména - od nejspolehlivějšího:
+            # 1) schema.org microdata přímo u položky, 2) JSON-LD podle
+            # URL, 3) dataLayer podle pozice (jen když počet sedí),
+            # 4) záložní heuristika z viditelného textu odkazů,
+            # 5) alt text obrázku, 6) "Neznámý produkt" jako poslední záchrana.
+            name = (
+                _name_from_microdata(box)
+                or json_ld_names.get(href)
+                or json_ld_names.get(href.rstrip("/"))
+                or (positional_names[idx] if positional_names else None)
+                or _pick_name_from_links(box)
+            )
             if not name:
                 img_tag = box.select_one("img[alt]")
-                name = img_tag["alt"].strip() if img_tag else "Neznámý produkt"
+                name = img_tag["alt"].strip() if img_tag and img_tag.get("alt") else "Neznámý produkt"
 
             img = box.select_one("img")
             image_url = None

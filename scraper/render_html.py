@@ -113,6 +113,7 @@ PAGE_TEMPLATE = """<!DOCTYPE html>
   .prices {{ margin-top: auto; display: flex; align-items: baseline; gap: 6px; }}
   .price-now {{ font-size: 1.05rem; font-weight: 700; color: var(--accent); }}
   .price-old {{ font-size: 0.8rem; color: var(--muted); text-decoration: line-through; }}
+  .note {{ font-size: 0.68rem; color: var(--fav); background: rgba(250,204,21,0.12); border-radius: 6px; padding: 2px 6px; display: inline-block; }}
   .actions {{ display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }}
   .actions a {{ font-size: 0.72rem; color: var(--muted); text-decoration: none; border: 1px solid var(--card-border); border-radius: 8px; padding: 4px 8px; }}
   .actions a.hide-link:active, .actions a.fav-link:active {{ background: var(--card-border); }}
@@ -149,6 +150,7 @@ CARD_TEMPLATE = """
       <span class="price-now">{price_current} {currency}</span>
       <span class="price-old">{price_original} {currency}</span>
     </div>
+    {note_html}
     <div class="actions">
       <a href="{url}" target="_blank" rel="noopener">Koupit ↗</a>
       <a class="fav-link{fav_link_class}" href="{fav_url}" target="_blank" rel="noopener">{fav_label}</a>
@@ -213,6 +215,7 @@ def render_gallery(
             new_badge = '<span class="badge new">NOVÉ</span>' if is_new_map.get(deal.product_id) else ""
             fav_badge = '<span class="badge fav">★ OBLÍBENÉ</span>' if is_fav else ""
             fav_label = "★ Odebrat z oblíbených" if is_fav else "☆ Přidat mezi oblíbené"
+            note_html = f'<div class="note">ℹ️ {html.escape(deal.note)}</div>' if deal.note else ""
             cards.append(
                 CARD_TEMPLATE.format(
                     card_favorite_class=" is-favorite" if is_fav else "",
@@ -227,6 +230,7 @@ def render_gallery(
                     currency=html.escape(deal.currency),
                     new_badge=new_badge,
                     fav_badge=fav_badge,
+                    note_html=note_html,
                     fav_link_class=" is-favorite" if is_fav else "",
                     fav_label=fav_label,
                     fav_url=build_favorite_issue_url(github_repo, deal.product_id, deal.name),

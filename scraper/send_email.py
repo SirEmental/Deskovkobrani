@@ -55,6 +55,7 @@ ITEM_TEMPLATE = """
       <span style="color:#ff6b4a; font-weight:700;">{price_current} {currency}</span>
       <span style="color:#999; text-decoration:line-through; font-size:13px;">{price_original} {currency}</span>
       <span style="color:#fff; background:#ff6b4a; font-size:12px; font-weight:700; padding:1px 6px; border-radius:6px;">-{discount}%</span>
+      {note_html}
       <br>
       <a href="{fav_url}" style="font-size:12px; color:#c9a300;">{fav_label}</a>
       &nbsp;·&nbsp;
@@ -79,6 +80,12 @@ def build_email_html(
     items_html = []
     for deal in sorted(new_deals, key=sort_key):
         is_fav = deal.product_id in favorites
+        note_html = (
+            f'<br><span style="font-size:11px; color:#a67c00; background:#fff8e1; '
+            f'padding:1px 6px; border-radius:6px;">ℹ️ {html.escape(deal.note)}</span>'
+            if deal.note
+            else ""
+        )
         items_html.append(
             ITEM_TEMPLATE.format(
                 url=html.escape(deal.url),
@@ -90,6 +97,7 @@ def build_email_html(
                 price_original=_fmt_price(deal.price_original),
                 currency=html.escape(deal.currency),
                 discount=deal.discount_pct,
+                note_html=note_html,
                 fav_label="★ Odebrat z oblíbených" if is_fav else "☆ Přidat mezi oblíbené",
                 fav_url=build_favorite_issue_url(github_repo, deal.product_id, deal.name),
                 hide_url=build_hide_issue_url(github_repo, deal.product_id, deal.name),

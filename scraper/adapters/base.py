@@ -51,6 +51,7 @@ class Deal:
     currency: str = "Kč"
     image_url: Optional[str] = None
     in_stock: bool = True
+    note: Optional[str] = None      # např. "Vyžaduje aktivní členství AlzaPlus+"
     product_id: str = field(default="")
 
     def __post_init__(self) -> None:
@@ -71,6 +72,7 @@ class Deal:
             "currency": self.currency,
             "image_url": self.image_url,
             "in_stock": self.in_stock,
+            "note": self.note,
             "product_id": self.product_id,
         }
 

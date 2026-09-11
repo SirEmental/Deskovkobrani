@@ -3,9 +3,13 @@ Trvalý stav mezi jednotlivými denními běhy se ukládá jako JSON soubory
 přímo v git repozitáři (data/hidden.json, data/seen.json). GitHub Action
 je po každém běhu commitne zpět - žádná externí databáze není potřeba.
 
-hidden.json:    {"<product_id>": {"name": ..., "hidden_at": "2026-09-08"}}
-seen.json:      {"<product_id>": {"first_seen": "2026-09-01", "last_seen": "2026-09-08"}}
-favorites.json: {"<product_id>": {"name": ..., "favorited_at": "2026-09-08"}}
+hidden.json:     {"<product_id>": {"name": ..., "hidden_at": "2026-09-08"}}
+seen.json:       {"<product_id>": {"first_seen": "2026-09-01", "last_seen": "2026-09-08"}}
+favorites.json:  {"<product_id>": {"name": ..., "favorited_at": "2026-09-08"}}
+last_deals.json: {"deals": [...cely Deal jako slovnik...], "is_new": {"<product_id>": bool}}
+                 - snímek POSLEDNÍHO denního běhu, aby šlo galerii
+                 přegenerovat okamžitě po kliknutí na Skrýt/Oblíbit,
+                 beze nutnosti znovu stahovat všechny obchody.
 """
 
 from __future__ import annotations
@@ -13,12 +17,13 @@ from __future__ import annotations
 import json
 import os
 from datetime import date, datetime
-from typing import Dict
+from typing import Dict, Optional
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
 HIDDEN_PATH = os.path.join(DATA_DIR, "hidden.json")
 SEEN_PATH = os.path.join(DATA_DIR, "seen.json")
 FAVORITES_PATH = os.path.join(DATA_DIR, "favorites.json")
+LAST_DEALS_PATH = os.path.join(DATA_DIR, "last_deals.json")
 
 
 def _load(path: str) -> dict:
@@ -35,6 +40,30 @@ def _save(path: str, data: dict) -> None:
     os.makedirs(DATA_DIR, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2, sort_keys=True)
+
+
+def save_deals_snapshot(deals, is_new_map: Dict[str, bool]) -> None:
+    """deals: list objektů Deal (z scraper.adapters.base)."""
+    snapshot = {"deals": [d.as_dict() for d in deals], "is_new": is_new_map}
+    os.makedirs(DATA_DIR, exist_ok=True)
+    with open(LAST_DEALS_PATH, "w", encoding="utf-8") as f:
+        json.dump(snapshot, f, ensure_ascii=False, indent=2)
+
+
+def load_deals_snapshot() -> Optional[tuple]:
+    """Vrátí (deals, is_new_map), nebo None pokud snímek ještě neexistuje
+    (např. úplně první běh se ještě neproběhl)."""
+    if not os.path.exists(LAST_DEALS_PATH):
+        return None
+    from scraper.adapters.base import Deal  # lokální import, ať se předejde cyklické závislosti
+
+    with open(LAST_DEALS_PATH, "r", encoding="utf-8") as f:
+        try:
+            raw = json.load(f)
+        except json.JSONDecodeError:
+            return None
+    deals = [Deal(**d) for d in raw.get("deals", [])]
+    return deals, raw.get("is_new", {})
 
 
 def load_hidden() -> Dict[str, dict]:

@@ -76,6 +76,13 @@ v repozitáři aktualizovat.
 Pokud něco selže, otevři si detail běhu a podívej se do logu - u
 každého obchodu se loguje, kolik slev našel (nebo proč selhal).
 
+## ⚠️ Pokud aktualizuješ z dřívější verze
+
+Pokud jsi už dřív nahrál soubor `.github/workflows/handle_hide.yml`,
+smaž ho ručně v GitHubu (otevři soubor → ikona koše → commit) - nahradil
+ho `handle_actions.yml`. Nahrání nových souborů starý soubor samo od
+sebe nesmaže, a kdyby tam zůstaly oba, mátlo by tě to v seznamu Actions.
+
 ## Jak funguje "Skrýt" a "Oblíbené"
 
 U každé položky v galerii/e-mailu jsou dva odkazy:
@@ -89,16 +96,69 @@ U každé položky v galerii/e-mailu jsou dva odkazy:
 Oba odkazy fungují stejně - otevřou v prohlížeči rovnou předvyplněné
 nové GitHub issue, stačí kliknout **Submit new issue** (jsi přihlášený
 do svého repozitáře, žádné další heslo netřeba). Do minuty to zpracuje
-druhý workflow. Issue se pak samo zavře s potvrzením.
+druhý workflow **a rovnou přegeneruje galerii** - není potřeba čekat na
+zítřejší denní běh, změna se projeví prakticky hned po zpracování
+issue (obnov stránku v prohlížeči). Issue se pak samo zavře s potvrzením.
 
 **Řazení v galerii/e-mailu:** 1) oblíbené položky, 2) mezi ostatními
 nejdřív ty NOVÉ (objevily se dnes poprvé), 3) uvnitř každé skupiny
 podle výše slevy.
 
+## Aktuálně sledované obchody
+
+**Planeta her, TLAMA games** (Shoptet), **MindOK, BoardBros** (WooCommerce),
+**Xzone** (vlastní systém). Zbytek z původního seznamu 18 obchodů buď
+neukazuje původní cenu/% slevy na výpisu (HRAS, Black Lotus - dá se
+zapnout zpátky v `config.py`, jen to bude pomalejší), běží na dalších
+platformách bez adaptéru (Simplia, WEXBO, nopCommerce, OpenCart,
+vlastní systémy - viz komentáře v `config.py`), nebo aktivně blokuje
+roboty (Xzone částečně, REXhry) či to zakazuje v `robots.txt` (Domov
+her, Ráj deskovek) - to poslední respektujeme a nescrapujeme to.
+
+## Aktuálně sledované obchody
+
+**Planeta her, TLAMA games** (Shoptet), **MindOK, BoardBros** (WooCommerce),
+**Alza** (vlastní systém - klasické slevy, "Cenová bomba", slevové kódy
+i AlzaPlus+ ceny, viz sekce níž). Xzone byl na žádost vyřazen (blokoval
+požadavky z GitHub Actions). Zbytek z původního seznamu 18 obchodů buď
+neukazuje původní cenu/% slevy na výpisu (HRAS, Black Lotus - dá se
+zapnout zpátky v `config.py`, jen to bude pomalejší), běží na dalších
+platformách bez adaptéru (Simplia, WEXBO, nopCommerce, OpenCart,
+vlastní systémy - viz komentáře v `config.py`), nebo aktivně blokuje
+roboty (REXhry) či to zakazuje v `robots.txt` (Domov her, Ráj deskovek)
+- to poslední respektujeme a nescrapujeme to.
+
+## Alza - zvláštní případ
+
+Alza má čtyři různé typy "slevy", které se navíc dají kombinovat:
+
+- **Klasická sleva** ("Zlevněno -X %") - běžný případ, čteme přímo.
+- **"Cenová bomba"** - jen aktuální cena a částka "Ušetříte"; pokud
+  "Ušetříte" chybí, položku přeskočíme (nemáme podle čeho počítat %).
+- **Slevový kód** ("Získejte slevu X % s kódem...") - podle textu se
+  uplatní jedním kliknutím, ne ručním opisováním. Počítáme ho jako
+  DALŠÍ slevu navrch klasické/cenové bomby - výsledná % bývají vyšší,
+  než co je vidět na první pohled.
+- **AlzaPlus+ cena** - reálná cena, ale vyžaduje aktivní (placené)
+  členství. Takové položky mají v galerii žlutou poznámku "Vyžaduje
+  aktivní členství AlzaPlus+", ať víš, že bez předplatného tuhle cenu
+  nezískáš.
+
+**Alza Benefit** (čtvrtý typ, co jsi zmiňoval) jsem záměrně vynechal -
+je to neveřejný program vázaný na konkrétní zaměstnavatele/instituce
+(vyžaduje přihlášení + neveřejný aktivační kód) a zvýhodněná cena se
+anonymnímu požadavku vůbec neposílá na server. Není tedy co scrapovat.
+
+**Detekce blokování:** Při přípravě jsem si stránku úspěšně stáhl bez
+jakéhokoliv CAPTCHA/blokování, ale to nezaručuje, že stejně projde i
+ostrý běh z GitHub Actions - velké e-shopy běžně rozlišují klienty
+sofistikovaněji (otisk prohlížeče, IP rozsah, chování). Uvidí se až
+při prvním ostrém spuštění.
+
 ## Přidání dalšího obchodu
 
 Otevři `scraper/config.py`. Pokud je nový obchod na platformě Shoptet
-(pozná se podle "Shoptet" v patičce stránky), stačí přidat pár řádků:
+(pozná se podle "Shoptet" v patičce stránky):
 
 ```python
 ShoptetShopConfig(
@@ -108,11 +168,20 @@ ShoptetShopConfig(
 ),
 ```
 
-V `config.py` je dole seznam obchodů na jiných platformách (Simplia,
-WEXBO, nopCommerce, WooCommerce, vlastní systémy...) - pro každý by
-šlo napsat malý adaptér stejným způsobem jako pro Xzone. Napiš mi,
-který chceš jako další, a přidám ho. Jeden obchod (Domov her) má v
-`robots.txt` výslovný zákaz pro roboty, takže ho záměrně nescrapujeme.
+Na platformě WooCommerce (pozná se podle "WooCommerce" nebo "WordPress"
+v patičce/zdrojovém kódu):
+
+```python
+WooCommerceShopConfig(
+    shop_name="Nazev obchodu",
+    base_url="https://www.example.cz",
+    sale_paths=["/obchod/"],  # i běžná kategorie stačí, filtruje se podle <del>/<ins>
+),
+```
+
+Pro jiné platformy (Simplia, WEXBO, nopCommerce, OpenCart, vlastní
+systémy...) by šlo napsat malý adaptér stejným způsobem jako pro Xzone
+- napiš mi, který obchod chceš jako další, a přidám ho.
 
 ## Omezení, o kterých bys měl vědět
 

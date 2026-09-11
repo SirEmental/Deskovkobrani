@@ -49,8 +49,14 @@ def main() -> None:
     logger.info("Po odečtení skrytých produktů zbývá %d.", len(visible_deals))
 
     favorites = storage.load_favorites()
-    is_new_map = storage.update_seen({d.product_id for d in visible_deals})
+    is_new_map = storage.update_seen({d.product_id for d in all_deals})
     new_deals = [d for d in visible_deals if is_new_map.get(d.product_id)]
+
+    # Uložit snímek VŠECH kvalifikujících dealů (i skrytých - kdyby ses
+    # rozhodl je odskrýt, ať nejsou znovu považované za "nové"). Díky
+    # tomuhle snímku umí handle_actions.yml po Skrýt/Oblíbit přegenerovat
+    # galerii OKAMŽITĚ, beze nutnosti znovu stahovat všechny obchody.
+    storage.save_deals_snapshot(all_deals, is_new_map)
 
     render_gallery(
         deals=visible_deals,
